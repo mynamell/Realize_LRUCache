@@ -45,8 +45,46 @@ void LRUCache::onImageDownloaded(QNetworkReply* reply){
     addToFile(key,imageData);
     emit imageReady(image,url);//发出图像准备就绪信号
 }
+//获取图片方法
+void LRUCache::getImage(const QString &url){
+    QMutexLocker locker(&m_mutex);//add互斥锁
+    // QString key=QString::number(qHash(url));//url的哈希值作为键
+    // 改用更可靠的哈希方式
+    QString key = QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Md5).toHex();
+    //1.检查内存缓存
+    if(m_memoryCache.contains(key)){//如果内存缓存中存在键值
+        promote(key);
+        emit imageReady(m_memoryCache[key].image,url);//发出图像准备就绪信号
+        return;
+    }
 
+    //从网络下载
+    QNetworkRequest request(url);//创建网络请求
+    request.setAttribute(QNetworkRequest::User,url);//设置请求属性
+    m_networkManager->get(request);//发送get请求
+}
+//清空缓存方法
+void LRUCache::clear(){
+    QMutexLocker locker(&m_mutex);
+    m_memoryCache.clear();//清空内存缓存
+    m_memoryKeys.clear();//清空内存缓存键列表
 
+}
+//将图片增加到内存缓存方法
+void LRUCache::addToMemory(const QString &key,const QPixmap &image){
+    ensureMemorySpace();//确保内存缓存有足够的空间
+    CacheItem item;//创建缓存项
+    item.image=image;//设置缓存项图片
+    m_memoryCache.insert(key,item);//将缓存项插入内存缓存
+    m_memoryKeys.prepend(key);//将键增加到内存缓存键列表开头
+}
+//确认内存缓存是否有足够空间
+void LRUCache::ensureMemorySpace(){
+    while(m_memoryKeys.size()>=m_memorySize){//内存缓存满了进行remove
+        QString oldestKey=m_memoryKeys.takeLast();//获取最旧的键
+        m_memoryCache.remove(oldestKey);//从内存缓存中移除该键
+    }
+}
 //获取路径url
 QString LRUCache::cacheFilePath(const QString &key) const{
     return m_cacheDir+"/"+key+".cache";//返回缓存文件路径
